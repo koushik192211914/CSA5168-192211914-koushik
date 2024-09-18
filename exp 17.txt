@@ -1,0 +1,77 @@
+#include <stdio.h>
+#include <stdint.h>
+#include <string.h>
+
+#define DES_KEY_SIZE 8
+#define DES_BLOCK_SIZE 8
+#define NUM_ROUNDS 16
+static const int IP[64] = { /* IP permutation table here */ };
+static const int IP_INV[64] = { /* IP inverse permutation table here */ };
+static const int PC1[56] = { /* PC1 permutation table here */ };
+static const int PC2[48] = { /* PC2 permutation table here */ };
+static const int SHIFT_SCHEDULE[16] = { /* Shift schedule here */ };
+static const int EXPANSION[48] = { /* Expansion permutation table here */ };
+static const int P[32] = { /* P permutation table here */ };
+static const int S_BOXES[8][4][16] = { /* S-boxes here */ };
+uint64_t permute(uint64_t input, const int *table, int size) {
+    uint64_t result = 0;
+    for (int i = 0; i < size; i++) {
+        result |= ((input >> (64 - table[i])) & 1) << (size - 1 - i);
+    }
+    return result;
+}
+void generate_keys(uint64_t key, uint64_t keys[NUM_ROUNDS]) {
+    key = permute(key, PC1, 56);
+    uint64_t left = key >> 28;
+    uint64_t right = key & 0xFFFFFFF;
+
+    for (int i = 0; i < NUM_ROUNDS; i++) {
+        left = (left << SHIFT_SCHEDULE[i]) | (left >> (28 - SHIFT_SCHEDULE[i]));
+        right = (right << SHIFT_SCHEDULE[i]) | (right >> (28 - SHIFT_SCHEDULE[i]));
+        uint64_t combined = (left << 28) | right;
+        keys[i] = permute(combined, PC2, 48);
+    }
+}
+void des_decrypt_block(uint64_t *block, const uint64_t keys[NUM_ROUNDS]) {
+    uint64_t left = (*block >> 32) & 0xFFFFFFFF;
+    uint64_t right = *block & 0xFFFFFFFF;
+
+    left = permute(left, IP, 64);
+    right = permute(right, IP, 64);
+    for (int i = NUM_ROUNDS - 1; i >= 0; i--) { 
+        uint64_t temp = right;
+        right = left ^ permute(right, EXPANSION, 48);
+        right = permute(right, P, 32);
+        left = temp;
+    }
+
+    *block = (left << 32) | right;
+    *block = permute(*block, IP_INV, 64);
+}
+void des_decrypt(const uint8_t *ciphertext, uint8_t *plaintext, const uint8_t *key) {
+    uint64_t keys[NUM_ROUNDS];
+    uint64_t block;
+    generate_keys(*(uint64_t *)key, keys);
+
+    for (size_t i = 0; i < strlen((const char *)ciphertext); i += DES_BLOCK_SIZE) {
+        memcpy(&block, &ciphertext[i], DES_BLOCK_SIZE);
+        des_decrypt_block(&block, keys);
+        memcpy(&plaintext[i], &block, DES_BLOCK_SIZE);
+    }
+}
+
+int main() {
+    uint8_t ciphertext[DES_BLOCK_SIZE] = { /* Your ciphertext here */ };
+    uint8_t plaintext[DES_BLOCK_SIZE];
+    uint8_t key[DES_KEY_SIZE] = { /* Your key here */ };
+
+    des_decrypt(ciphertext, plaintext, key);
+
+    printf("Decrypted plaintext: ");
+    for (size_t i = 0; i < DES_BLOCK_SIZE; i++) {
+        printf("%c", plaintext[i]);
+    }
+    printf("\n");
+
+    return 0;
+}
